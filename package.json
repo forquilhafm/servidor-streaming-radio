@@ -1,11 +1,9 @@
 {
-  "name": "icecast-radio-stream",
+  "name": "icecast-p2p-radio",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
-  "dependencies": {
-    "node-icecast-server": "^0.0.4"
-  }
+  "dependencies": {}
 }
