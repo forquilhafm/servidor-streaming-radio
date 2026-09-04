@@ -10,32 +10,41 @@ const listenerClients = new Set();
 const server = http.createServer((req, res) => {
     const url = req.url.split('?')[0];
 
-    // 1. ACEITAR CONEXÃO DO TRANSMISSOR
+    // 1. RECONHECER O SINAL DO SEU TRANSMISSOR
     if (req.method === 'SOURCE' || req.method === 'PUT') {
-        // Aceita autenticação básica ou via cabeçalho do Icecast
-        const authHeader = req.headers['authorization'] || req.headers['ice-password'];
+        const authHeader = req.headers['authorization'] || req.headers['ice-password'] || '';
         let isAuthorized = false;
 
-        if (authHeader) {
-            if (authHeader.startsWith('Basic ')) {
-                const credentials = Buffer.from(authHeader.split(' ')[1], 'base64').toString();
-                isAuthorized = credentials.includes(PASSWORD);
-            } else {
-                isAuthorized = authHeader === PASSWORD;
+        // Decodifica a senha de forma inteligente se o transmissor mandar colado ou separado
+        if (authHeader.startsWith('Basic ')) {
+            try {
+                const base64Token = authHeader.replace('Basic ', '').trim();
+                const credentials = Buffer.from(base64Token, 'base64').toString('utf-8');
+                isAuthorized = credentials.includes(PASSWORD) || credentials.endsWith(':' + PASSWORD);
+            } catch (e) {
+                isAuthorized = false;
             }
+        } else if (authHeader) {
+            isAuthorized = authHeader.trim() === PASSWORD;
+        }
+
+        // Se o transmissor mandar a senha na própria URL (comum em alguns softwares)
+        if (req.url.includes('pass=') && req.url.includes(PASSWORD)) {
+            isAuthorized = true;
         }
 
         if (url !== MOUNT_POINT || !isAuthorized) {
+            console.log('Tentativa de conexão recusada: senha incorreta ou ponto incorreto.');
             res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Icecast"' });
             return res.end('Não autorizado');
         }
 
         if (sourceClient) sourceClient.destroy();
         
-        console.log('Estúdio externo conectado com sucesso!');
+        console.log('🔥 Transmissor Conectado com Sucesso!');
         sourceClient = req;
 
-        // Repassa os dados de áudio em tempo real para os ouvintes
+        // Distribui os blocos de áudio brutos MP3 recebidos para a rádio em tempo real
         req.on('data', (chunk) => {
             for (const client of listenerClients) {
                 client.write(chunk);
@@ -45,12 +54,12 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             sourceClient = null;
             for (const client of listenerClients) client.end();
-            console.log('Estúdio externo desconectado.');
+            console.log('Transmissor desconectado.');
         });
 
         req.on('error', () => { sourceClient = null; });
 
-        // Resposta padrão que o Transmissor espera para confirmar que deu certo
+        // Resposta exata que o aperto de mão do Icecast exige para iniciar o streaming
         res.writeHead(200, {
             'Icecast-Login': '1',
             'Connection': 'Keep-Alive'
@@ -59,7 +68,7 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 2. ENVIAR ÁUDIO PARA A AUTOMAÇÃO DA RÁDIO
+    // 2. ENVIAR O ÁUDIO PARA A AUTOMAÇÃO DA RÁDIO (ZARARADIO / RADIOBOSS)
     if (url === MOUNT_POINT) {
         res.writeHead(200, {
             'Content-Type': 'audio/mpeg',
@@ -71,11 +80,11 @@ const server = http.createServer((req, res) => {
         });
 
         listenerClients.add(res);
-        console.log(`Automação da rádio conectada. Total: ${listenerClients.size}`);
+        console.log(`Automação conectada ao fluxo de áudio. Total de ouvintes: ${listenerClients.size}`);
 
         req.on('close', () => {
             listenerClients.delete(res);
-            console.log(`Automação desconectada. Restantes: ${listenerClients.size}`);
+            console.log(`Automação desconectou. Restantes: ${listenerClients.size}`);
         });
         return;
     }
